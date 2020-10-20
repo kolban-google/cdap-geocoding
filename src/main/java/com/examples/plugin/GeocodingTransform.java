@@ -2,6 +2,7 @@
 package com.examples.plugin;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 import javax.annotation.Nullable;
 
@@ -23,6 +24,8 @@ import io.cdap.cdap.etl.api.StageConfigurer;
 import io.cdap.cdap.etl.api.StageSubmitterContext;
 import io.cdap.cdap.etl.api.Transform;
 import io.cdap.cdap.etl.api.TransformContext;
+import io.cdap.cdap.etl.api.validation.ValidationException;
+import io.cdap.cdap.etl.api.validation.ValidationFailure;
 
 /**
  * Transform that can transforms specific fields to lowercase or uppercase.
@@ -60,21 +63,70 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
       return Schema.parseJson(outputSchema);
     }
 
+    public String getAddressFieldName() {
+      return addressFieldName;
+    }
+
+    public String getGeocodingFieldName() {
+      return geocodingFieldName;
+    }
+
+    public String getApiKey() {
+      return apiKey;
+    }
+
   }
 
+
   public GeocodingTransform(Conf config) {
-    System.out.println("GeolocationTransform::GeolocationTransform");
+    System.out.println("GeocodingTransform::GeolocationTransform");
     this.config = config;
   }
+
 
   // configurePipeline is called only once, when the pipeline is deployed. Static
   // validation should be done here.
   @Override
   public void configurePipeline(PipelineConfigurer pipelineConfigurer) {
-    System.out.println("GeolocationTransform::configurePipeline");
+    System.out.println("GeocodingTransform::configurePipeline");
     StageConfigurer stageConfigurer = pipelineConfigurer.getStageConfigurer();
     // the output schema is always the same as the input schema1
+
+
+    if (config.getApiKey() == null) {
+      throw new ValidationException(
+        Arrays.asList(
+          new ValidationFailure("No Google Maps API key supplied").withConfigProperty("apiKey")
+        )
+      );
+    }
+
+    if (config.getAddressFieldName() == null) {
+      throw new ValidationException(
+        Arrays.asList(
+          new ValidationFailure("No input address field name supplied").withConfigProperty("addressFieldName")
+        )
+      );
+    }
+
+    if (config.getGeocodingFieldName() == null) {
+      throw new ValidationException(
+        Arrays.asList(
+          new ValidationFailure("No output geocoding field name supplied").withConfigProperty("geocodingFieldName")
+        )
+      );
+    }
     Schema inputSchema = stageConfigurer.getInputSchema();
+
+    if (inputSchema.getField(config.getAddressFieldName()) == null) {
+      throw new ValidationException(
+        Arrays.asList(
+          new ValidationFailure(
+            String.format("No field called %s found in input schema", config.getAddressFieldName())
+          ).withConfigProperty("addressFieldName")
+        )
+      );
+    }
 
     try {
       //stageConfigurer.setOutputSchema(outputSchema);
@@ -83,42 +135,51 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
     catch(Exception e) {
       e.printStackTrace();
     }
+  } // configurePipeline
 
-  }
 
   // initialize is called once at the start of each pipeline run
   @Override
   public void initialize(TransformContext context) throws Exception {
-    System.out.println("GeolocationTransform::initialize");
-    geoApiContext = new GeoApiContext.Builder().apiKey(config.apiKey).build();
+    System.out.println("GeocodingTransform::initialize");
+    geoApiContext = new GeoApiContext.Builder().apiKey(config.getApiKey()).build();
     outputSchema = config.getOutputSchema();
   }
 
   // transform is called once for each record that goes into this stage
   @Override
   public void transform(StructuredRecord inputRecord, Emitter<StructuredRecord> emitter) throws Exception {
-    System.out.println("GeolocationTransform::transform");
-    System.out.println("Output schema: " + outputSchema.toString());
+    System.out.println("GeocodingTransform::transform");
+    //System.out.println("Output schema: " + outputSchema.toString());
+    String addressFieldName = config.getAddressFieldName();
+    String address = inputRecord.get(addressFieldName);
+
     StructuredRecord.Builder outputBuilder = StructuredRecord.builder(outputSchema);
     CDAPUtils.copy(inputRecord, outputSchema, outputBuilder);
-    GeocodingResult results[] = GeocodingApi.geocode(geoApiContext, inputRecord.get(config.addressFieldName)).await();
-    Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    System.out.println("result: " + gson.toJson(results[0]));
-    String jsonResultString = gson.toJson(results[0]);
-    outputBuilder.set(config.geocodingFieldName, jsonResultString);
+    String jsonResultString;
+    try {
+      GeocodingResult results[] = GeocodingApi.geocode(geoApiContext, address).await();
+      Gson gson = new GsonBuilder().setPrettyPrinting().create();
+      System.out.println("result: " + gson.toJson(results[0]));
+      jsonResultString = gson.toJson(results[0]);
+    } catch(Exception e) {
+      e.printStackTrace();
+      jsonResultString = "";
+    }
+    outputBuilder.set(config.getGeocodingFieldName(), jsonResultString);
     emitter.emit(outputBuilder.build());
     // emitter.emit(record);
   }
 
   @Override
   public void prepareRun(StageSubmitterContext context) {
-    System.out.println("GeolocationTransform::prepareRun");
+    System.out.println("GeocodingTransform::prepareRun");
     // geoApiContext = new GeoApiContext.Builder().apiKey(config.apiKey).build();
   }
 
   @Override
   public void destroy() {
-    System.out.println("GeolocationTransform::destroy");
+    System.out.println("GeocodingTransform::destroy");
     geoApiContext.shutdown();
   }
 
