@@ -2,12 +2,9 @@
 package com.examples.plugin;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 
-import javax.annotation.Nullable;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.maps.GeoApiContext;
 import com.google.maps.GeocodingApi;
 import com.google.maps.model.GeocodingResult;
@@ -17,6 +14,8 @@ import io.cdap.cdap.api.annotation.Name;
 import io.cdap.cdap.api.annotation.Plugin;
 import io.cdap.cdap.api.data.format.StructuredRecord;
 import io.cdap.cdap.api.data.schema.Schema;
+import io.cdap.cdap.api.data.schema.Schema.Field;
+import io.cdap.cdap.api.data.schema.Schema.Type;
 import io.cdap.cdap.api.plugin.PluginConfig;
 import io.cdap.cdap.etl.api.Emitter;
 import io.cdap.cdap.etl.api.PipelineConfigurer;
@@ -37,6 +36,21 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
   GeoApiContext geoApiContext;
   private final Conf config;
   private Schema outputSchema;
+
+  // Build the schemas used in the story
+  static private Schema latLngSchema = Schema.recordOf("LATLNG",
+    Field.of("lat", Schema.of(Type.DOUBLE)),
+    Field.of("lng", Schema.of(Type.DOUBLE))
+  );
+
+  static private Schema geometrySchema = Schema.recordOf("GEOMETRY",
+    Field.of("latlng", latLngSchema)
+  );
+
+  static private Schema mapSchema = Schema.recordOf("MAP",
+    Field.of("formattedAddress", Schema.of(Type.STRING)),
+    Field.of("geometry", geometrySchema)
+  );
 
   /**
    * Config properties for the plugin.
@@ -75,13 +89,13 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
       return apiKey;
     }
 
-  }
+  } // Conf
 
 
   public GeocodingTransform(Conf config) {
     System.out.println("GeocodingTransform::GeolocationTransform");
     this.config = config;
-  }
+  } // GeocodingTransform
 
 
   // configurePipeline is called only once, when the pipeline is deployed. Static
@@ -129,8 +143,11 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
     }
 
     try {
+      ArrayList<Field> newFields = new ArrayList<>(inputSchema.getFields());
+      newFields.add(Field.of(config.getGeocodingFieldName(), mapSchema));
+
       //stageConfigurer.setOutputSchema(outputSchema);
-      stageConfigurer.setOutputSchema(null);
+      stageConfigurer.setOutputSchema(Schema.recordOf("XXX", newFields));
     }
     catch(Exception e) {
       e.printStackTrace();
@@ -143,8 +160,8 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
   public void initialize(TransformContext context) throws Exception {
     System.out.println("GeocodingTransform::initialize");
     geoApiContext = new GeoApiContext.Builder().apiKey(config.getApiKey()).build();
-    outputSchema = config.getOutputSchema();
-  }
+    outputSchema = context.getOutputSchema();
+  } // initialize
 
   // transform is called once for each record that goes into this stage
   @Override
@@ -156,6 +173,23 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
 
     StructuredRecord.Builder outputBuilder = StructuredRecord.builder(outputSchema);
     CDAPUtils.copy(inputRecord, outputSchema, outputBuilder);
+    GeocodingResult results[] = GeocodingApi.geocode(geoApiContext, address).await();
+    outputBuilder.set(config.geocodingFieldName, 
+      StructuredRecord.builder(mapSchema)
+        .set("formattedAddress", results[0].formattedAddress)
+        .set("geometry", 
+          StructuredRecord.builder(geometrySchema)
+            .set("latlng",
+              StructuredRecord.builder(latLngSchema)
+                .set("lat", results[0].geometry.location.lat)
+                .set("lng", results[0].geometry.location.lng)
+              .build())
+          .build())
+      .build()
+    );
+    //outputBuilder.set("latlng", StructuredRecord.builder(latLngSchema).set("lat", 1.0).set("lng", 1.0).build());
+
+    /*
     String jsonResultString;
     try {
       GeocodingResult results[] = GeocodingApi.geocode(geoApiContext, address).await();
@@ -167,21 +201,23 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
       jsonResultString = "";
     }
     outputBuilder.set(config.getGeocodingFieldName(), jsonResultString);
+    */
     emitter.emit(outputBuilder.build());
     // emitter.emit(record);
-  }
+  } // transform
+
 
   @Override
   public void prepareRun(StageSubmitterContext context) {
     System.out.println("GeocodingTransform::prepareRun");
     // geoApiContext = new GeoApiContext.Builder().apiKey(config.apiKey).build();
-  }
+  } // prepareRun
+
 
   @Override
   public void destroy() {
     System.out.println("GeocodingTransform::destroy");
     geoApiContext.shutdown();
-  }
+  } // destroy
 
- 
 }
