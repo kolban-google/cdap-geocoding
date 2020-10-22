@@ -9,16 +9,24 @@ result is stored as JSON string in a named field in the output record.
 Use Case
 --------
 
-This transform is used whenever you need to perform geocoding on an address.
+This transform is used whenever you need to perform geocoding on an address.  This plugin encapsulates the [Google Maps
+Geocoding API](https://developers.google.com/maps/documentation/geocoding/start).
 
 Properties
 ----------
 
 **apiKey:** The value of the API key used to access Google maps.
 
-**addressFieldName:** The name of the field in the input record which will be used to perform geocoding.
+**addressFieldName:** The name of the field in the input record which contains the address be used to perform geocoding.  The field should be a String.
 
-**geocodingFieldName:** The name of the field in the output record which will be populated with the JSON string representing the geocoding result.
+**geocodingFieldName:** The name of the field in the output record which will be populated with the returned record.  The output schema will be
+augmented with a record of the following structure:
+
+* `formattedAddress` - String - The full address returned from Google Maps.
+* `geometry` - Record - Geometry information.
+  * `latlng` - Record - Geo positioning information.
+    * `lat` - Double - Lattitude.
+    * `lng` - Double - Longitude.
 
 Example
 -------

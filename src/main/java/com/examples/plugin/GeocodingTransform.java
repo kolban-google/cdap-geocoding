@@ -18,6 +18,7 @@ import io.cdap.cdap.api.data.schema.Schema.Field;
 import io.cdap.cdap.api.data.schema.Schema.Type;
 import io.cdap.cdap.api.plugin.PluginConfig;
 import io.cdap.cdap.etl.api.Emitter;
+import io.cdap.cdap.etl.api.InvalidEntry;
 import io.cdap.cdap.etl.api.PipelineConfigurer;
 import io.cdap.cdap.etl.api.StageConfigurer;
 import io.cdap.cdap.etl.api.StageSubmitterContext;
@@ -174,6 +175,15 @@ public class GeocodingTransform extends Transform<StructuredRecord, StructuredRe
     StructuredRecord.Builder outputBuilder = StructuredRecord.builder(outputSchema);
     CDAPUtils.copy(inputRecord, outputSchema, outputBuilder);
     GeocodingResult results[] = GeocodingApi.geocode(geoApiContext, address).await();
+
+    if (results.length == 0) {
+      // We failed to perform a lookup!!  We must emit an error
+      System.out.println("We failed to do a lookup!");
+      InvalidEntry<StructuredRecord> invalidEntry = new InvalidEntry<StructuredRecord>(-1, "Geocode lookup failed", inputRecord);
+      emitter.emitError(invalidEntry);
+      return;
+    }
+
     outputBuilder.set(config.geocodingFieldName, 
       StructuredRecord.builder(mapSchema)
         .set("formattedAddress", results[0].formattedAddress)

@@ -1,7 +1,8 @@
 {
   "metadata": {
-    "spec-version": "1.0"
+    "spec-version": "1.5"
   },
+  "display-name": "Geocoding",
   "configuration-groups": [
     {
       "label": "Geocoding Configuration",
@@ -28,6 +29,7 @@
       ]
     }
   ],
+  "emit-errors": true,
   "icon": {
     "type": "inline",
     "arguments": {
