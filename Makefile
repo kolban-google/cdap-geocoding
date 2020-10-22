@@ -1,5 +1,5 @@
 PLUGIN=geocoding
-VERSION=1.0-SNAPSHOT
+VERSION=0.1.0
 
 all:
 	echo "install"
